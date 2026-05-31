@@ -82,6 +82,10 @@ public class TempEntity implements LivingEntity {
         this.target = target;
     }
 
+    public EffectTarget getEffectTarget() {
+        return target;
+    }
+
     public double getEyeHeight() {
         return 0.2;
     }

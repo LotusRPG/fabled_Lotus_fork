@@ -203,6 +203,7 @@ public class ComponentRegistry {
         register(new LaunchMechanic());
         register(new LightningMechanic());
         register(new ManaMechanic());
+        register(new MarkProjectileMechanic());
         register(new MessageMechanic());
         register(new MineMechanic());
         register(new MoneyMechanic());

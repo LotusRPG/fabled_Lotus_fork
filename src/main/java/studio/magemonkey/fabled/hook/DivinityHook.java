@@ -1,12 +1,15 @@
 package studio.magemonkey.fabled.hook;
 
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.inventory.ItemStack;
 import studio.magemonkey.codex.util.DataUT;
 import studio.magemonkey.divinity.stats.EntityStats;
 import studio.magemonkey.divinity.stats.items.ItemStats;
+import studio.magemonkey.divinity.stats.items.attributes.AmmoAttribute;
 import studio.magemonkey.divinity.stats.items.attributes.api.TypedStat;
 import studio.magemonkey.fabled.api.enums.Operation;
 
@@ -19,6 +22,98 @@ public class DivinityHook {
         if (data == null) data = DataUT.getStringData(item, KEY_MODULE);
 
         return data != null;
+    }
+
+    /**
+     * Returns the projectile entity class declared by a Divinity AmmoAttribute on the given item,
+     * or null if the item has no ammo lore stat (or item is null/empty).
+     * <p>
+     * Used by {@link studio.magemonkey.fabled.dynamic.mechanic.ProjectileMechanic} when
+     * {@code use-divinity-ammo: true} — overrides the hardcoded projectile type with the
+     * caster's bow ammo type.
+     * <p>
+     * NOTE: Only call when Divinity is confirmed active (PluginChecker.isDivinityActive()).
+     */
+    public static Class<? extends Projectile> getAmmoProjectileClass(ItemStack item) {
+        if (item == null) return null;
+        AmmoAttribute ammo = ItemStats.getAmmo(item);
+        return ammo != null ? ammo.getProjectileClass() : null;
+    }
+
+    /**
+     * Returns the consumable inventory Material for the given bow's ammo lore stat.
+     * Returns null when item has no ammo, or ammo type has no native vanilla item
+     * (WITHER_SKULL, SHULKER_BULLET, LLAMA_SPIT).
+     */
+    public static Material getAmmoConsumeMaterial(ItemStack item) {
+        if (item == null) return null;
+        AmmoAttribute ammo = ItemStats.getAmmo(item);
+        return ammo != null ? ammo.getConsumeMaterial() : null;
+    }
+
+    /**
+     * Returns the Divinity ammo type enum name (e.g. "ARROW", "FIREBALL", "SNOWBALL")
+     * declared by the bow's lore stat, or null if no ammo lore present.
+     * Used by LaunchTrigger to expose `api-ammo-type` CastData key.
+     */
+    public static String getAmmoTypeName(ItemStack item) {
+        if (item == null) return null;
+        AmmoAttribute ammo = ItemStats.getAmmo(item);
+        return ammo != null ? ammo.getType().name() : null;
+    }
+
+    /**
+     * Returns the Divinity QArrow id stored on a projectile by Divinity's ArrowManager
+     * via the {@code QRPG_ARROW_ID} metadata key, or null if the projectile is not a
+     * Divinity custom arrow.
+     * <p>
+     * Metadata is set by {@code ArrowManager.markArrow} inside the EntityShootBowEvent
+     * handler — by the time Fabled's ProjectileLaunchEvent / ProjectileHitEvent /
+     * ProjectileTickEvent observers run, the value is already present.
+     * <p>
+     * Only call when Divinity is confirmed active (PluginChecker.isDivinityActive()).
+     */
+    public static String getArrowId(Projectile pj) {
+        if (pj == null) return null;
+        if (!pj.hasMetadata("QRPG_ARROW_ID")) return null;
+        java.util.List<org.bukkit.metadata.MetadataValue> meta = pj.getMetadata("QRPG_ARROW_ID");
+        if (meta.isEmpty()) return null;
+        return meta.get(0).asString();
+    }
+
+    /**
+     * Returns the Divinity arrow level metadata ({@code QRPG_ARROW_LEVEL}) for a projectile,
+     * or 0 if absent. Companion to {@link #getArrowId}.
+     */
+    public static int getArrowLevel(Projectile pj) {
+        if (pj == null) return 0;
+        if (!pj.hasMetadata("QRPG_ARROW_LEVEL")) return 0;
+        java.util.List<org.bukkit.metadata.MetadataValue> meta = pj.getMetadata("QRPG_ARROW_LEVEL");
+        if (meta.isEmpty()) return 0;
+        return meta.get(0).asInt();
+    }
+
+    /**
+     * Returns true when {@code ids} contains the projectile's Divinity arrow id, or contains
+     * a wildcard {@code "*"} entry that matches any Divinity arrow.
+     * <p>
+     * Returns false when:
+     *   - {@code ids} is null or empty (caller should treat this as "filter not applied"),
+     *   - projectile has no Divinity arrow metadata, or
+     *   - the id is set but not contained in {@code ids} (and no wildcard).
+     * <p>
+     * Only call when Divinity is confirmed active.
+     */
+    public static boolean matchesArrowIdFilter(Projectile pj, java.util.List<String> ids) {
+        if (ids == null || ids.isEmpty()) return false;
+        String arrowId = getArrowId(pj);
+        if (arrowId == null) return false;
+        for (String entry : ids) {
+            if (entry == null) continue;
+            if (entry.equals("*")) return true;
+            if (entry.equalsIgnoreCase(arrowId)) return true;
+        }
+        return false;
     }
 
     /**

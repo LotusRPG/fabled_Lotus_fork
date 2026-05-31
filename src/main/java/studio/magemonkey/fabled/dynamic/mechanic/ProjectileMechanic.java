@@ -90,6 +90,7 @@ public class ProjectileMechanic extends MechanicComponent {
     private static final String                                       RIGHT         = "right";
     private static final String                                       USE_EFFECT    = "use-effect";
     private static final String                                       EFFECT_KEY    = "effect-key";
+    private static final String                                       USE_DIV_AMMO  = "use-divinity-ammo";
     public static final  String                                       HOMING        = "homing";
     public static final  String                                       HOMING_TARGET = "target";
     public static final  String                                       HOMING_DIST   = "homing-distance";
@@ -113,6 +114,15 @@ public class ProjectileMechanic extends MechanicComponent {
 
     private static final NamespacedKey namespaceKey = new NamespacedKey(Objects.requireNonNull(Bukkit.getPluginManager()
             .getPlugin("Fabled")), "proj_start_location");
+
+    /**
+     * True only for the duration of a skill-fired {@link LivingEntity#launchProjectile} call.
+     * Lets {@code LaunchTrigger} recognise skill projectiles synchronously, before the
+     * {@link MechanicListener#P_CALL} metadata is applied (which happens after launch returns).
+     * Safe as a plain static: launches run on the main thread and the ProjectileLaunchEvent
+     * fires synchronously inside the wrapped call.
+     */
+    public static boolean launchingSkillProjectile = false;
 
     @SuppressWarnings("unchecked")
     private static Class<? extends Projectile> getProjectileClass(String projectileName) {
@@ -164,9 +174,37 @@ public class ProjectileMechanic extends MechanicComponent {
             type = Arrow.class;
         }
 
+        // Divinity ammo override — when use-divinity-ammo: true and caster wields a bow with
+        // an AmmoAttribute lore stat, use that ammo's projectile class instead of `projectile:`.
+        if (settings.getBool(USE_DIV_AMMO, false)
+                && caster instanceof Player
+                && studio.magemonkey.fabled.hook.PluginChecker.isDivinityActive()) {
+            ItemStack mainHand = ((Player) caster).getInventory().getItemInMainHand();
+            Class<? extends Projectile> ammoType =
+                    studio.magemonkey.fabled.hook.DivinityHook.getAmmoProjectileClass(mainHand);
+            if (ammoType != null) {
+                type = ammoType;
+            }
+        }
+
         // Cost to cast
         if (cost.equals("one") || cost.equals("all")) {
             Material mat = MATERIALS.get(settings.getString(PROJECTILE, "arrow").toLowerCase());
+
+            // Divinity ammo cost override — when use-divinity-ammo: true and caster wields a bow
+            // with an AmmoAttribute that maps to a vanilla consume material, swap the cost material.
+            // Null consume material (WITHER_SKULL etc.) falls back to YAML projectile material.
+            if (settings.getBool(USE_DIV_AMMO, false)
+                    && caster instanceof Player
+                    && studio.magemonkey.fabled.hook.PluginChecker.isDivinityActive()) {
+                ItemStack mainHand = ((Player) caster).getInventory().getItemInMainHand();
+                Material ammoMat =
+                        studio.magemonkey.fabled.hook.DivinityHook.getAmmoConsumeMaterial(mainHand);
+                if (ammoMat != null) {
+                    mat = ammoMat;
+                }
+            }
+
             if (mat == null || !(caster instanceof Player)) return false;
             Player player = (Player) caster;
             if (cost.equals("one") && !player.getInventory().contains(mat, 1)) {
@@ -197,7 +235,13 @@ public class ProjectileMechanic extends MechanicComponent {
                         parseValues(caster, RADIUS, level, 2.0),
                         parseValues(caster, HEIGHT, level, 8.0),
                         amount)) {
-                    Projectile p = caster.launchProjectile(type);
+                    Projectile p;
+                    launchingSkillProjectile = true;
+                    try {
+                        p = caster.launchProjectile(type);
+                    } finally {
+                        launchingSkillProjectile = false;
+                    }
                     p.teleport(loc);
                     p.setVelocity(vel);
                     p.getPersistentDataContainer().set(namespaceKey,
@@ -213,7 +257,13 @@ public class ProjectileMechanic extends MechanicComponent {
                 }
                 List<Vector> dirs = CustomProjectile.calcSpread(dir, parseValues(caster, ANGLE, level, 30.0), amount);
                 for (Vector d : dirs) {
-                    Projectile p = caster.launchProjectile(type);
+                    Projectile p;
+                    launchingSkillProjectile = true;
+                    try {
+                        p = caster.launchProjectile(type);
+                    } finally {
+                        launchingSkillProjectile = false;
+                    }
                     p.teleport(location);
                     p.getPersistentDataContainer().set(namespaceKey,
                             PersistentDataType.STRING,
