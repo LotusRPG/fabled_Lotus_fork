@@ -28,10 +28,15 @@ package studio.magemonkey.fabled.dynamic.mechanic;
 
 import com.google.common.collect.ImmutableSet;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Player;
 import org.bukkit.potion.PotionEffectType;
 import studio.magemonkey.codex.util.NamespaceResolver;
+import studio.magemonkey.fabled.Fabled;
+import studio.magemonkey.fabled.api.player.PlayerData;
 import studio.magemonkey.fabled.api.util.FlagManager;
 import studio.magemonkey.fabled.api.util.StatusFlag;
+import studio.magemonkey.fabled.hook.DivinityHook;
+import studio.magemonkey.fabled.hook.PluginChecker;
 
 import java.util.*;
 
@@ -62,6 +67,7 @@ public class PurgeMechanic extends MechanicComponent {
 
     private static final String STATUS = "status";
     private static final String POTION = "potion";
+    private static final String STAT   = "stat";
 
     @Override
     public String getKey() {
@@ -95,6 +101,20 @@ public class PurgeMechanic extends MechanicComponent {
             }
         }
 
+        // Stat keys to purge — purges StatMechanic-applied modifiers (player only).
+        // "All" means all keys; explicit list filters. Modifiers with ignore-purge=true are skipped.
+        Set<String> statSet  = new HashSet<>();
+        boolean     statsAll = false;
+        for (String string : settings.getStringList(STAT)) {
+            if (string.equalsIgnoreCase("All")) {
+                statsAll = true;
+                statSet.clear();
+                break;
+            }
+            statSet.add(string.toLowerCase());
+        }
+        boolean purgeStats = statsAll || !statSet.isEmpty();
+
         for (LivingEntity target : targets) {
             for (String status : statusSet) {
                 if (FlagManager.hasFlag(target, status)) {
@@ -106,6 +126,26 @@ public class PurgeMechanic extends MechanicComponent {
                 if (target.hasPotionEffect(type)) {
                     target.removePotionEffect(type);
                     worked = true;
+                }
+            }
+            if (purgeStats && target instanceof Player) {
+                PlayerData data = Fabled.getData((Player) target);
+                if (data != null) {
+                    // Purge removes modifiers tagged purgeable OR no-cleanse (both keep Purge eligibility).
+                    int removed = data.removeStatModifiersBySource(
+                            StatMechanic.SOURCE_PURGEABLE,
+                            statsAll ? null : statSet,
+                            false);
+                    removed += data.removeStatModifiersBySource(
+                            StatMechanic.SOURCE_NO_CLEANSE,
+                            statsAll ? null : statSet,
+                            false);
+                    if (removed > 0) {
+                        worked = true;
+                        if (PluginChecker.isDivinityActive()) {
+                            DivinityHook.refreshBonusAttributes((Player) target);
+                        }
+                    }
                 }
             }
         }

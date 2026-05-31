@@ -74,7 +74,7 @@ public class DivinityHook {
      */
     public static Object applyStatToMob(LivingEntity target, LivingEntity caster,
                                         String key, String operation, double amount, double seconds) {
-        studio.magemonkey.divinity.stats.items.api.ItemLoreStat<?> stat = ItemStats.getAttribute(key);
+        studio.magemonkey.divinity.stats.items.api.ItemLoreStat<?> stat = resolveStatByKey(key);
         if (stat == null) return null;
 
         java.util.function.DoubleUnaryOperator operator;
@@ -99,6 +99,51 @@ public class DivinityHook {
     }
 
     /**
+     * Resolves a StatMechanic-style key into the matching Divinity ItemLoreStat.
+     * Supported key forms:
+     *   damage_{id}        -> DamageAttribute
+     *   defense_{id}       -> DefenseAttribute
+     *   damagebuff_{id}    -> DynamicBuffStat (damage buff)
+     *   defensebuff_{id}   -> DynamicBuffStat (defense buff)
+     *   penetration_{id}   -> PenetrationStat
+     *   {typed_stat_name}  -> SimpleStat (TypedStat.Type lowercase: critical_rate, movement_speed, ...)
+     *   {raw_id}           -> fallback to generic ItemStats.getAttribute (charges etc.)
+     */
+    private static studio.magemonkey.divinity.stats.items.api.ItemLoreStat<?> resolveStatByKey(String key) {
+        if (key == null) return null;
+        String k = key.toLowerCase();
+        // Order matters: damagebuff_ / defensebuff_ must be checked before damage_ / defense_
+        if (k.startsWith("damagebuff_")) {
+            return ItemStats.getDamageBuff(k.substring("damagebuff_".length()));
+        }
+        if (k.startsWith("defensebuff_")) {
+            return ItemStats.getDefenseBuff(k.substring("defensebuff_".length()));
+        }
+        if (k.startsWith("penetration_")) {
+            return ItemStats.getPenetration(k.substring("penetration_".length()));
+        }
+        if (k.startsWith("damage_")) {
+            return ItemStats.getDamageById(k.substring("damage_".length()));
+        }
+        if (k.startsWith("defense_")) {
+            return ItemStats.getDefenseById(k.substring("defense_".length()));
+        }
+        // TypedStat.Type lowercase (critical_rate, movement_speed, max_health, cc_resistance, ...)
+        try {
+            studio.magemonkey.divinity.stats.items.attributes.api.TypedStat.Type t =
+                    studio.magemonkey.divinity.stats.items.attributes.api.TypedStat.Type.valueOf(k.toUpperCase());
+            studio.magemonkey.divinity.stats.items.attributes.api.TypedStat ts = ItemStats.getStat(t);
+            if (ts instanceof studio.magemonkey.divinity.stats.items.api.ItemLoreStat) {
+                return (studio.magemonkey.divinity.stats.items.api.ItemLoreStat<?>) ts;
+            }
+        } catch (IllegalArgumentException ignored) {
+            // not a TypedStat.Type, fall through
+        }
+        // Last resort: generic attribute registry (charges etc.)
+        return ItemStats.getAttribute(k);
+    }
+
+    /**
      * Removes a stat effect previously returned by {@link #applyStatToMob} from the target's EntityStats.
      * Only call when Divinity is confirmed active.
      */
@@ -106,5 +151,15 @@ public class DivinityHook {
         if (effect == null) return;
         EntityStats.get(target).removeEffect(
                 (studio.magemonkey.divinity.manager.effects.main.AdjustStatEffect) effect);
+    }
+
+    /**
+     * Forces Divinity to recompute NBT-bound bonus attributes (MAX_HEALTH, ATTACK_SPEED, MOVEMENT_SPEED)
+     * so Fabled-side stat modifiers added via {@code PlayerData.addStatModifier} propagate to the player.
+     * Without this, the bridge in EntityStats.updateBonusAttributes only refreshes on equipment / effect changes.
+     * Only call when Divinity is confirmed active.
+     */
+    public static void refreshBonusAttributes(Player player) {
+        EntityStats.get(player).updateBonusAttributes();
     }
 }

@@ -2357,6 +2357,34 @@ public class PlayerData {
     }
 
     /**
+     * Removes stat modifiers matching a source string, optionally restricted to a set of stat keys.
+     * Returns the number of modifiers removed. Used by PurgeMechanic to drop StatMechanic-applied buffs.
+     *
+     * @param source    exact source string to match (e.g. "fabled.mechanic.stat_mechanic")
+     * @param keyFilter null/empty = all keys; otherwise restrict to these stat keys
+     * @param update    if true, recompute Fabled-internal stats after removal
+     */
+    public int removeStatModifiersBySource(String source, java.util.Collection<String> keyFilter, boolean update) {
+        int removed = 0;
+        for (Entry<String, List<PlayerStatModifier>> entry : this.statModifiers.entrySet()) {
+            if (keyFilter != null && !keyFilter.isEmpty() && !keyFilter.contains(entry.getKey())) continue;
+            List<PlayerStatModifier>     modifiers = entry.getValue();
+            Iterator<PlayerStatModifier> i         = modifiers.iterator();
+            while (i.hasNext()) {
+                if (source.equals(i.next().getName())) {
+                    i.remove();
+                    removed++;
+                }
+            }
+            this.statModifiers.put(entry.getKey(), modifiers);
+        }
+        if (removed > 0 && update) {
+            this.updatePlayerStat(getPlayer());
+        }
+        return removed;
+    }
+
+    /**
      * Clear all stat modifier which is not persistent
      */
     public void clearStatModifier() {

@@ -52,6 +52,17 @@ public class StatMechanic extends MechanicComponent {
     private static final String SECONDS           = "seconds";
     private static final String STACKABLE         = "stackable";
     private static final String IGNORE_DIVINITY_CAP = "ignore-divinity-cap";
+    private static final String IGNORE_PURGE        = "ignore-purge";
+    private static final String IGNORE_CLEANSE      = "ignore-cleanse";
+
+    /** Default tag: modifier removable by both Purge and Cleanse. */
+    public static final String SOURCE_PURGEABLE   = "fabled.mechanic.stat_mechanic";
+    /** ignore-purge=true: Cleanse removes, Purge skips. */
+    public static final String SOURCE_NO_PURGE    = "fabled.mechanic.stat_mechanic.no_purge";
+    /** ignore-cleanse=true: Purge removes, Cleanse skips. */
+    public static final String SOURCE_NO_CLEANSE  = "fabled.mechanic.stat_mechanic.no_cleanse";
+    /** Both ignore-purge=true and ignore-cleanse=true: untouched by either. */
+    public static final String SOURCE_KEEP        = "fabled.mechanic.stat_mechanic.keep";
 
     private final Map<Integer, Map<String, StatTask>> tasks      = new HashMap<>();
     private final Map<Integer, Map<Integer, Object>>  mobEffects = new HashMap<>();
@@ -101,7 +112,14 @@ public class StatMechanic extends MechanicComponent {
                     }
                 }
 
-                PlayerStatModifier modifier = new PlayerStatModifier("fabled.mechanic.stat_mechanic", effectiveAmount,
+                final boolean ignorePurge   = settings.getBool(IGNORE_PURGE, false);
+                final boolean ignoreCleanse = settings.getBool(IGNORE_CLEANSE, false);
+                final String  source;
+                if (ignorePurge && ignoreCleanse) source = SOURCE_KEEP;
+                else if (ignorePurge)             source = SOURCE_NO_PURGE;
+                else if (ignoreCleanse)           source = SOURCE_NO_CLEANSE;
+                else                              source = SOURCE_PURGEABLE;
+                PlayerStatModifier modifier = new PlayerStatModifier(source, effectiveAmount,
                         Operation.valueOf(operation), false);
 
                 if (casterTasks.containsKey(data.getPlayerName()) && !stackable) {
@@ -109,11 +127,18 @@ public class StatMechanic extends MechanicComponent {
 
                     data.removeStatModifier(old.modifier.getUUID(), false);
 
-                    data.addStatModifier(key, modifier, true);
+                    // update=false — Fabled's updatePlayerStat calls setWalkSpeed(0.2f) which overrides
+                    // Divinity NBT MOVEMENT_SPEED slowdown. Divinity refresh below handles propagation.
+                    data.addStatModifier(key, modifier, false);
 
                     old.stop(); // use stop() instead of cancel() — cancel() throws ISE when seconds:-1 (task never scheduled)
                 } else {
-                    data.addStatModifier(key, modifier, true);
+                    data.addStatModifier(key, modifier, false);
+                }
+
+                // Force Divinity NBT bonus refresh — MOVEMENT_SPEED/MAX_HEALTH/ATTACK_SPEED won't update otherwise
+                if (PluginChecker.isDivinityActive()) {
+                    DivinityHook.refreshBonusAttributes((Player) target);
                 }
 
                 final StatTask task = new StatTask(caster.getEntityId(), data, modifier);
@@ -181,9 +206,17 @@ public class StatMechanic extends MechanicComponent {
 
         @Override
         public void run() {
-            data.removeStatModifier(modifier.getUUID(), true);
+            // update=false — let Divinity refresh below handle propagation (avoids setWalkSpeed override)
+            data.removeStatModifier(modifier.getUUID(), false);
             if (tasks.containsKey(id)) {
                 tasks.get(id).remove(data.getPlayerName());
+            }
+            // Force Divinity NBT bonus refresh on expiration — mirrors apply-side refresh
+            if (PluginChecker.isDivinityActive()) {
+                Player player = data.getPlayer();
+                if (player != null) {
+                    DivinityHook.refreshBonusAttributes(player);
+                }
             }
             running = false;
         }
