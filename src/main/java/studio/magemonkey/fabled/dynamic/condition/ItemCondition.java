@@ -27,18 +27,75 @@
 package studio.magemonkey.fabled.dynamic.condition;
 
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.inventory.EntityEquipment;
+import org.bukkit.inventory.ItemStack;
 import studio.magemonkey.fabled.dynamic.ItemChecker;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 /**
- * A condition for dynamic skills that requires the target to have a specified held item
+ * A condition for dynamic skills that requires the target to have a specified item in one of the listed slots.
+ * Slots list accepts: Main_Hand, Off_Hand, Helmet, Chestplate, Leggings, Boots, Any.
+ * When the list is empty or contains "Any", all six slots are checked. The condition passes if any listed slot matches.
  */
 public class ItemCondition extends ConditionComponent {
+
+    private static final List<String> ALL_SLOTS =
+            Arrays.asList("MAIN_HAND", "OFF_HAND", "HELMET", "CHESTPLATE", "LEGGINGS", "BOOTS");
+    private static final List<String> DEFAULT_SLOTS = Arrays.asList("MAIN_HAND");
+
     @Override
     boolean test(final LivingEntity caster, final int level, final LivingEntity target) {
-        return target.getEquipment() != null && ItemChecker.check(
-                target.getEquipment().getItemInHand(),
-                level,
-                settings);
+        EntityEquipment eq = target.getEquipment();
+        if (eq == null) return false;
+
+        List<String> configured = settings.getStringList("slots");
+        if (configured == null || configured.isEmpty()) configured = DEFAULT_SLOTS;
+
+        List<String> slots = new ArrayList<>();
+        for (String raw : configured) {
+            String norm = raw.replace(" ", "_").toUpperCase();
+            if (norm.equals("ANY")) {
+                slots.addAll(ALL_SLOTS);
+            } else {
+                slots.add(norm);
+            }
+        }
+
+        for (String slot : slots) {
+            ItemStack item = resolveSlot(eq, slot);
+            if (item == null) continue;
+            if (ItemChecker.check(item, level, settings)) return true;
+        }
+        return false;
+    }
+
+    private ItemStack resolveSlot(EntityEquipment eq, String slot) {
+        switch (slot) {
+            case "MAIN_HAND":
+            case "MAINHAND":
+            case "HAND":
+                return eq.getItemInMainHand();
+            case "OFF_HAND":
+            case "OFFHAND":
+                return eq.getItemInOffHand();
+            case "HELMET":
+            case "HEAD":
+                return eq.getHelmet();
+            case "CHESTPLATE":
+            case "CHEST":
+                return eq.getChestplate();
+            case "LEGGINGS":
+            case "LEGS":
+                return eq.getLeggings();
+            case "BOOTS":
+            case "FEET":
+                return eq.getBoots();
+            default:
+                return null;
+        }
     }
 
     @Override
